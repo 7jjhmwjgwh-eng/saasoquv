@@ -38,6 +38,7 @@ export interface Group {
   status: string;
   enrolled_count: number;
   free_slots: number;
+  is_full: boolean;
   schedule_slots: ScheduleSlot[];
 }
 
@@ -45,10 +46,36 @@ export interface Student {
   id: string;
   full_name: string;
   phone: string | null;
+  parent_phone: string | null;
+  birth_date: string | null;
   telegram_id: number | null;
   status: string;
   source: string | null;
   total_points: number;
+  paid_until: string | null;
+  is_payment_overdue: boolean;
+  lessons_total: number;
+  lessons_missed: number;
+  lessons_late: number;
+}
+
+export interface Payment {
+  id: string;
+  student_id: string;
+  amount: string;
+  method: string;
+  status: string;
+  paid_at: string;
+  valid_until: string | null;
+  comment: string | null;
+}
+
+export interface Debtor {
+  student_id: string;
+  full_name: string;
+  phone: string | null;
+  paid_until: string | null;
+  days_overdue: number | null;
 }
 
 export interface ScheduleOverviewItem {
@@ -163,8 +190,27 @@ export const api = {
     request(`/api/groups/${groupId}/enroll?student_id=${studentId}`, { method: "POST" }),
 
   listStudents: () => request<Student[]>("/api/students"),
-  createStudent: (payload: { full_name: string; phone?: string; source?: string }) =>
-    request<Student>("/api/students", { method: "POST", body: JSON.stringify(payload) }),
+  createStudent: (payload: {
+    full_name: string;
+    phone?: string;
+    parent_phone?: string;
+    birth_date?: string;
+    source?: string;
+  }) => request<Student>("/api/students", { method: "POST", body: JSON.stringify(payload) }),
+
+  updateStudent: (id: string, payload: Record<string, unknown>) =>
+    request<Student>(`/api/students/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+
+  listPayments: () => request<Payment[]>("/api/payments"),
+  listDebtors: () => request<Debtor[]>("/api/payments/debtors"),
+  createPayment: (payload: {
+    student_id: string;
+    amount: number;
+    method: string;
+    paid_at: string;
+    valid_until?: string;
+    comment?: string;
+  }) => request<Payment>("/api/payments", { method: "POST", body: JSON.stringify(payload) }),
 
   getScheduleOverview: () => request<ScheduleOverviewItem[]>("/api/schedule-overview"),
 
@@ -196,3 +242,45 @@ export const api = {
 };
 
 export { ApiError, getToken };
+
+export interface StaffMember {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  role: string;
+  is_active: boolean;
+  telegram_id: number | null;
+}
+
+export interface TenantInfo {
+  id: string;
+  name: string;
+  subdomain: string;
+  plan: string;
+  is_active: boolean;
+  created_at: string;
+  owner_email: string | null;
+  active_students: number;
+  revenue_this_month: number;
+}
+
+export const staffApi = {
+  list: () => request<StaffMember[]>("/api/staff"),
+  create: (payload: { full_name: string; phone?: string; email?: string; password: string; role: string }) =>
+    request<StaffMember>("/api/staff", { method: "POST", body: JSON.stringify(payload) }),
+  update: (id: string, payload: Record<string, unknown>) =>
+    request<StaffMember>(`/api/staff/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+};
+
+export const superApi = {
+  listTenants: (token: string) =>
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/superadmin/tenants`, {
+      headers: { "X-Super-Token": token },
+    }).then((r) => r.json()) as Promise<TenantInfo[]>,
+  toggle: (token: string, id: string) =>
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/superadmin/tenants/${id}/toggle`, {
+      method: "PATCH",
+      headers: { "X-Super-Token": token },
+    }).then((r) => r.json()),
+};
