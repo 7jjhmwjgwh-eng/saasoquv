@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # Super-admin (BotNest owner) — separate from tenant JWT auth
+    super_admin_token: str = ""
+
     environment: str = "development"
 
     @field_validator("database_url", mode="before")

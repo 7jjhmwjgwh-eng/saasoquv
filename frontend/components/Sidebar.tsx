@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/attendance", label: "Посещаемость", icon: "☑" },
   { href: "/groups", label: "Группы", icon: "◫" },
   { href: "/students", label: "Ученики", icon: "◍" },
+  { href: "/payments", label: "Оплаты", icon: "₴" },
   { href: "/courses", label: "Курсы и уровни", icon: "▥" },
   { href: "/rooms", label: "Аудитории", icon: "▧" },
 ];
@@ -19,7 +20,7 @@ const NAV_ITEMS = [
 const MOBILE_TAB_ITEMS = [
   { href: "/dashboard", label: "Обзор", icon: "▤" },
   { href: "/attendance", label: "Посещ.", icon: "☑" },
-  { href: "/schedule", label: "Расписание", icon: "▦" },
+  { href: "/payments", label: "Оплаты", icon: "₴" },
   { href: "/students", label: "Ученики", icon: "◍" },
 ];
 

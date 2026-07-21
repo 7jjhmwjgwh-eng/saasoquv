@@ -3,12 +3,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_current_user
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.tenant import Tenant
 from app.models.user import User, UserRole
 from app.schemas.auth import LoginRequest, TenantRegister, TokenResponse, UserOut
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+class LoginResponse(TokenResponse):
+    role: str
+    full_name: str
 
 
 @router.post("/register", response_model=TokenResponse)
@@ -73,7 +79,13 @@ async def link_admin_telegram(
     return {"status": "linked", "tenant_id": str(user.tenant_id)}
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.get("/me", response_model=UserOut)
+async def get_me(user: User = Depends(get_current_user)):
+    """Current logged-in user — frontend calls this on startup to decide which panel to show."""
+    return user
+
+
+@router.post("/login")
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(User)
@@ -87,4 +99,6 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
 
     token = create_access_token({"user_id": str(user.id), "tenant_id": str(user.tenant_id)})
-    return TokenResponse(access_token=token)
+    # Return role so the frontend can immediately redirect to the right panel
+    # without a second round-trip to /me.
+    return {"access_token": token, "token_type": "bearer", "role": user.role.value, "full_name": user.full_name}

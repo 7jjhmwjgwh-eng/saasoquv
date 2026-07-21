@@ -7,7 +7,7 @@ import { studentApi, ApiError } from "@/lib/studentApi";
 export default function StudentLoginPage() {
   const router = useRouter();
   const [subdomain, setSubdomain] = useState("");
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState("+998");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -45,12 +45,12 @@ export default function StudentLoginPage() {
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium mb-1">Subdomain центра</label>
+            <label className="block text-sm font-medium mb-1">Учебное заведение</label>
             <input
               required
               value={subdomain}
               onChange={(e) => setSubdomain(e.target.value)}
-              placeholder="my-center"
+              placeholder="Короткое имя центра, напр. samo"
               className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
             />
           </div>
@@ -60,7 +60,7 @@ export default function StudentLoginPage() {
               required
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              placeholder="+998..."
+              placeholder="+998 90 123 45 67"
               className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
             />
           </div>

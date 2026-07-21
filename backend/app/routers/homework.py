@@ -34,6 +34,16 @@ async def list_homework_for_group(group_id: uuid.UUID, db: AsyncSession = Depend
     return result.scalars().all()
 
 
+@router.get("/{homework_id}/submissions", response_model=list[SubmissionOut])
+async def list_submissions(homework_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    result = await db.execute(
+        select(HomeworkSubmission)
+        .where(HomeworkSubmission.homework_id == homework_id)
+        .order_by(HomeworkSubmission.submitted_at.desc())
+    )
+    return result.scalars().all()
+
+
 @router.post("/{homework_id}/submit", response_model=SubmissionOut, status_code=201)
 async def submit_homework(
     homework_id: uuid.UUID,

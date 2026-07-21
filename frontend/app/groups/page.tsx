@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
-import { api, getToken, Group, Course, Room } from "@/lib/api";
+import { api, getToken, Group, Course, Room, Student, GroupStudent } from "@/lib/api";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
@@ -21,10 +21,44 @@ export default function GroupsPage() {
   const [levelId, setLevelId] = useState("");
   const [maxStudents, setMaxStudents] = useState(12);
   const [roomId, setRoomId] = useState("");
-  const [weekday, setWeekday] = useState(0);
+  const [weekdays, setWeekdays] = useState<number[]>([]);
   const [startTime, setStartTime] = useState("18:00");
   const [endTime, setEndTime] = useState("19:30");
   const [saving, setSaving] = useState(false);
+
+  const [openGroupId, setOpenGroupId] = useState<string | null>(null);
+  const [allStudents, setAllStudents] = useState<Student[]>([]);
+  const [roster, setRoster] = useState<GroupStudent[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [enrollError, setEnrollError] = useState<string | null>(null);
+
+  async function openRoster(groupId: string) {
+    if (openGroupId === groupId) {
+      setOpenGroupId(null);
+      return;
+    }
+    setOpenGroupId(groupId);
+    setRosterLoading(true);
+    setEnrollError(null);
+    try {
+      const [rs, st] = await Promise.all([api.getGroupStudents(groupId), api.listStudents()]);
+      setRoster(rs);
+      setAllStudents(st);
+    } finally {
+      setRosterLoading(false);
+    }
+  }
+
+  async function handleEnroll(groupId: string, studentId: string) {
+    setEnrollError(null);
+    try {
+      await api.enrollStudent(groupId, studentId);
+      const [rs] = await Promise.all([api.getGroupStudents(groupId), loadAll()]);
+      setRoster(rs);
+    } catch (err) {
+      setEnrollError(err instanceof Error ? err.message : "Не удалось зачислить");
+    }
+  }
 
   function loadAll() {
     return Promise.all([api.listGroups(), api.listCourses(), api.listRooms()]).then(([g, c, r]) => {
@@ -54,11 +88,22 @@ export default function GroupsPage() {
         level_id: levelId || undefined,
         name,
         max_students: maxStudents,
+        // One slot per selected weekday — this is how "Пн / Ср / Пт" becomes
+        // three recurring lessons on the same room and time.
         schedule_slots: roomId
-          ? [{ room_id: roomId, weekday, start_time: startTime, end_time: endTime }]
+          ? weekdays
+              .slice()
+              .sort((a, b) => a - b)
+              .map((wd) => ({
+                room_id: roomId,
+                weekday: wd,
+                start_time: startTime,
+                end_time: endTime,
+              }))
           : [],
       });
       setName("");
+      setWeekdays([]);
       setShowForm(false);
       await loadAll();
     } catch (err) {
@@ -169,20 +214,32 @@ export default function GroupsPage() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-medium mb-1 text-[var(--color-text-muted)]">День</label>
-                <select
-                  value={weekday}
-                  onChange={(e) => setWeekday(Number(e.target.value))}
-                  disabled={!roomId}
-                  className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:opacity-50"
-                >
-                  {WEEKDAYS.map((d, i) => (
-                    <option key={i} value={i}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
+              <div className="col-span-2 sm:col-span-1">
+                <label className="block text-xs font-medium mb-1 text-[var(--color-text-muted)]">Дни занятий</label>
+                <div className="flex flex-wrap gap-1">
+                  {WEEKDAYS.map((d, i) => {
+                    const active = weekdays.includes(i);
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        disabled={!roomId}
+                        onClick={() =>
+                          setWeekdays((prev) =>
+                            prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]
+                          )
+                        }
+                        className={`w-9 h-9 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 ${
+                          active
+                            ? "bg-[var(--color-accent)] text-white border-[var(--color-accent)]"
+                            : "bg-[var(--color-bg)] text-[var(--color-text-muted)] border-[var(--color-border)]"
+                        }`}
+                      >
+                        {d}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1 text-[var(--color-text-muted)]">С</label>
@@ -243,11 +300,73 @@ export default function GroupsPage() {
                 <p className="text-sm text-[var(--color-text-muted)]">
                   {g.enrolled_count} / {g.max_students} учеников
                 </p>
-                {g.schedule_slots.map((s) => (
-                  <p key={s.id} className="text-xs text-[var(--color-text-muted)] mt-1">
-                    {WEEKDAYS[s.weekday]} {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
+                {g.schedule_slots.length > 0 && (
+                  <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                    {g.schedule_slots
+                      .slice()
+                      .sort((a, b) => a.weekday - b.weekday)
+                      .map((s) => WEEKDAYS[s.weekday])
+                      .join(" / ")}
+                    {" · "}
+                    {g.schedule_slots[0].start_time.slice(0, 5)}–
+                    {g.schedule_slots[0].end_time.slice(0, 5)}
                   </p>
-                ))}
+                )}
+
+                <button
+                  onClick={() => openRoster(g.id)}
+                  className="mt-3 text-xs font-medium text-[var(--color-accent)] hover:underline"
+                >
+                  {openGroupId === g.id ? "Скрыть учеников" : "Ученики группы"}
+                </button>
+
+                {openGroupId === g.id && (
+                  <div className="mt-3 border-t border-[var(--color-border)] pt-3">
+                    {enrollError && (
+                      <p className="text-xs text-[var(--color-danger)] mb-2">{enrollError}</p>
+                    )}
+                    {rosterLoading ? (
+                      <p className="text-xs text-[var(--color-text-muted)]">Загрузка...</p>
+                    ) : (
+                      <>
+                        {roster.length === 0 ? (
+                          <p className="text-xs text-[var(--color-text-muted)] mb-2">
+                            В группе пока никого нет
+                          </p>
+                        ) : (
+                          <ul className="space-y-1 mb-3">
+                            {roster.map((s) => (
+                              <li key={s.id} className="text-sm flex items-center gap-2">
+                                <span className="text-[var(--color-success)]">•</span>
+                                {s.full_name}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+
+                        {g.free_slots > 0 && (
+                          <select
+                            defaultValue=""
+                            onChange={(e) => {
+                              if (e.target.value) handleEnroll(g.id, e.target.value);
+                              e.target.value = "";
+                            }}
+                            className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                          >
+                            <option value="">+ Зачислить ученика...</option>
+                            {allStudents
+                              .filter((st) => !roster.some((r) => r.id === st.id))
+                              .map((st) => (
+                                <option key={st.id} value={st.id}>
+                                  {st.full_name}
+                                </option>
+                              ))}
+                          </select>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

@@ -18,7 +18,9 @@ export default function StudentsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState("+998");
+  const [parentPhone, setParentPhone] = useState("+998");
+  const [birthDate, setBirthDate] = useState("");
   const [source, setSource] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -38,9 +40,17 @@ export default function StudentsPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.createStudent({ full_name: name, phone: phone || undefined, source: source || undefined });
+      await api.createStudent({
+        full_name: name,
+        phone: phone || undefined,
+        parent_phone: parentPhone || undefined,
+        birth_date: birthDate || undefined,
+        source: source || undefined,
+      });
       setName("");
       setPhone("");
+      setParentPhone("");
+      setBirthDate("");
       setSource("");
       setShowForm(false);
       await loadStudents();
@@ -103,6 +113,24 @@ export default function StudentsPage() {
               />
             </div>
             <div>
+              <label className="block text-xs font-medium mb-1 text-[var(--color-text-muted)]">Телефон родителя</label>
+              <input
+                value={parentPhone}
+                onChange={(e) => setParentPhone(e.target.value)}
+                placeholder="+998..."
+                className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1 text-[var(--color-text-muted)]">Дата рождения</label>
+              <input
+                type="date"
+                value={birthDate}
+                onChange={(e) => setBirthDate(e.target.value)}
+                className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+              />
+            </div>
+            <div>
               <label className="block text-xs font-medium mb-1 text-[var(--color-text-muted)]">Источник</label>
               <input
                 value={source}
@@ -138,6 +166,8 @@ export default function StudentsPage() {
                   <th className="px-5 py-3 font-medium">Имя</th>
                   <th className="px-5 py-3 font-medium">Телефон</th>
                   <th className="px-5 py-3 font-medium">Статус</th>
+                  <th className="px-5 py-3 font-medium">Оплата</th>
+                  <th className="px-5 py-3 font-medium text-right">Пропуски</th>
                   <th className="px-5 py-3 font-medium text-right">Баллы</th>
                   <th className="px-5 py-3 font-medium text-right">Кабинет</th>
                 </tr>
@@ -153,6 +183,36 @@ export default function StudentsPage() {
                         <span className={`inline-flex rounded-full text-xs font-medium px-2.5 py-1 ${status.className}`}>
                           {status.label}
                         </span>
+                      </td>
+                      <td className="px-5 py-3">
+                        {s.paid_until ? (
+                          <span
+                            className={`inline-flex rounded-full text-xs font-medium px-2.5 py-1 ${
+                              s.is_payment_overdue
+                                ? "bg-[var(--color-danger-bg)] text-[var(--color-danger)]"
+                                : "bg-[var(--color-success-bg)] text-[var(--color-success)]"
+                            }`}
+                          >
+                            {s.is_payment_overdue ? "просрочено" : `до ${s.paid_until}`}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-[var(--color-text-muted)]">не платил</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-right text-sm">
+                        {s.lessons_missed > 0 ? (
+                          <span className="text-[var(--color-danger)] font-medium">
+                            {s.lessons_missed}
+                          </span>
+                        ) : (
+                          <span className="text-[var(--color-text-muted)]">0</span>
+                        )}
+                        {s.lessons_late > 0 && (
+                          <span className="text-[var(--color-warning)] text-xs">
+                            {" "}
+                            (+{s.lessons_late} опозд.)
+                          </span>
+                        )}
                       </td>
                       <td className="px-5 py-3 text-right font-medium">{s.total_points}</td>
                       <td className="px-5 py-3 text-right">

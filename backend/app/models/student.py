@@ -1,7 +1,8 @@
 import uuid
+from datetime import date
 from enum import Enum as PyEnum
 
-from sqlalchemy import Enum, ForeignKey, String
+from sqlalchemy import BigInteger, Date, Enum, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,7 +27,10 @@ class Student(Base, UUIDMixin, TimestampMixin):
     )
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(32))
-    telegram_id: Mapped[int | None] = mapped_column(unique=True, index=True)
+    parent_phone: Mapped[str | None] = mapped_column(String(32))
+    birth_date: Mapped[date | None] = mapped_column(Date)
+    # BigInteger, not Integer: Telegram user IDs have outgrown the int32 range.
+    telegram_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, index=True)
     password_hash: Mapped[str | None] = mapped_column(String(255))  # for website login option
     status: Mapped[StudentStatus] = mapped_column(Enum(StudentStatus), default=StudentStatus.LEAD)
     source: Mapped[str | None] = mapped_column(String(100))  # e.g. "instagram", "referral"

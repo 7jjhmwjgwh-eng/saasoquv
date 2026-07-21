@@ -11,8 +11,10 @@ from app.routers import (
     payments,
     rooms,
     schedule_overview,
+    staff,
     student_auth,
     students,
+    superadmin,
     uploads,
 )
 
@@ -37,6 +39,8 @@ app.include_router(payments.router)
 app.include_router(schedule_overview.router)
 app.include_router(student_auth.router)
 app.include_router(uploads.router)
+app.include_router(staff.router)
+app.include_router(superadmin.router)
 
 
 @app.get("/health")

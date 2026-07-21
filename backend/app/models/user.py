@@ -1,7 +1,7 @@
 import uuid
 from enum import Enum as PyEnum
 
-from sqlalchemy import Enum, ForeignKey, String
+from sqlalchemy import BigInteger, Enum, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,7 +26,8 @@ class User(Base, UUIDMixin, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(32))
     email: Mapped[str | None] = mapped_column(String(255), index=True)
-    telegram_id: Mapped[int | None] = mapped_column(unique=True, index=True)
+    # BigInteger, not Integer: Telegram user IDs have outgrown the int32 range.
+    telegram_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.TEACHER)
     is_active: Mapped[bool] = mapped_column(default=True)

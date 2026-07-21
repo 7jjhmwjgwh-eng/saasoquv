@@ -28,7 +28,38 @@ async def _to_student_out(db: AsyncSession, student: Student) -> StudentOut:
     )
     out = StudentOut.model_validate(student)
     out.total_points = points_result.scalar_one()
+    await _attach_payment_and_attendance(db, out)
     return out
+
+
+async def _attach_payment_and_attendance(db: AsyncSession, out: StudentOut) -> None:
+    """Fills the 'at a glance' fields: until when the student is paid up, and how
+    many lessons they missed / were late for. Kept separate so both the list and
+    the single-student view show exactly the same numbers.
+    """
+    from datetime import date as date_type
+
+    from app.models.payment import Payment
+
+    paid_result = await db.execute(
+        select(func.max(Payment.valid_until)).where(Payment.student_id == out.id)
+    )
+    paid_until = paid_result.scalar_one_or_none()
+    out.paid_until = paid_until
+    out.is_payment_overdue = bool(paid_until and paid_until < date_type.today())
+
+    stats = await db.execute(
+        select(Attendance.status, func.count(Attendance.id))
+        .where(Attendance.student_id == out.id)
+        .group_by(Attendance.status)
+    )
+    for status, count in stats.all():
+        value = status.value if hasattr(status, "value") else str(status)
+        out.lessons_total += count
+        if value == "absent":
+            out.lessons_missed = count
+        elif value == "late":
+            out.lessons_late = count
 
 
 @router.get("", response_model=list[StudentOut])
@@ -48,6 +79,8 @@ async def create_student(
         tenant_id=user.tenant_id,
         full_name=payload.full_name,
         phone=payload.phone,
+        parent_phone=payload.parent_phone,
+        birth_date=payload.birth_date,
         source=payload.source,
         notes=payload.notes,
     )
