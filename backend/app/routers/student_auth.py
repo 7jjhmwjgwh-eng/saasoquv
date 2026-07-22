@@ -38,16 +38,13 @@ async def student_login(payload: StudentLoginRequest, db: AsyncSession = Depends
 @router.get("/me", response_model=StudentOut)
 async def get_my_profile(db: AsyncSession = Depends(get_db), student: Student = Depends(get_current_student)):
     """The student portal's entry point — resolves the logged-in student from their own token,
-    so the frontend never needs to know or pass a student_id explicitly.
+    so the frontend never needs to know or pass a student_id explicitly. Reuses the same
+    builder as the admin-facing student list so the code/points/payment fields never drift
+    between what staff see and what the student sees about themselves.
     """
-    points_result = await db.execute(
-        select(func.coalesce(func.sum(StudentPointsLog.points), 0)).where(
-            StudentPointsLog.student_id == student.id
-        )
-    )
-    out = StudentOut.model_validate(student)
-    out.total_points = points_result.scalar_one()
-    return out
+    from app.routers.students import _to_student_out
+
+    return await _to_student_out(db, student)
 
 
 @router.post("/students/{student_id}/set-password")

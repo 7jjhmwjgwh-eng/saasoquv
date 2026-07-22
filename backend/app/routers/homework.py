@@ -21,8 +21,33 @@ async def create_homework(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("owner", "admin", "teacher")),
 ):
+    from app.models.enrollment import Enrollment, EnrollmentStatus
+    from app.models.group import Group
+
+    group_result = await db.execute(
+        select(Group).where(Group.id == payload.group_id, Group.tenant_id == user.tenant_id)
+    )
+    group = group_result.scalar_one_or_none()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    if user.role.value == "teacher" and group.teacher_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your group")
+
     homework = Homework(**payload.model_dump())
     db.add(homework)
+    await db.flush()
+
+    # Without a stub row per student, the student portal has nothing to show until
+    # a submission exists — but there's no "submit" UI yet, so newly-assigned homework
+    # would silently never appear. Creating a pending row per enrolled student fixes that.
+    roster_result = await db.execute(
+        select(Enrollment.student_id).where(
+            Enrollment.group_id == payload.group_id, Enrollment.status == EnrollmentStatus.ACTIVE
+        )
+    )
+    for (student_id,) in roster_result.all():
+        db.add(HomeworkSubmission(homework_id=homework.id, student_id=student_id, is_completed=False))
+
     await db.commit()
     await db.refresh(homework)
     return homework
@@ -82,13 +107,21 @@ async def grade_submission(
 
     submission.grade = payload.grade
     submission.teacher_comment = payload.teacher_comment
+    submission.is_completed = True
 
-    # Grade feeds into the same points log as attendance, so the portal rating is one number.
+    # Remove any points already logged for a previous grading of this same submission —
+    # otherwise re-grading (fixing a mistake) doubles the student's points every time.
+    existing_points = await db.execute(
+        select(StudentPointsLog).where(StudentPointsLog.reason == f"homework:{submission.homework_id}:{submission.student_id}")
+    )
+    for p in existing_points.scalars().all():
+        await db.delete(p)
+
     db.add(
         StudentPointsLog(
             student_id=submission.student_id,
             points=payload.grade,
-            reason=f"homework:{submission.homework_id}",
+            reason=f"homework:{submission.homework_id}:{submission.student_id}",
         )
     )
     await db.commit()

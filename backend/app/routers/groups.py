@@ -32,11 +32,12 @@ async def _to_group_out(db: AsyncSession, group: Group) -> GroupOut:
 
 @router.get("", response_model=list[GroupOut])
 async def list_groups(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    result = await db.execute(
-        select(Group)
-        .where(Group.tenant_id == user.tenant_id)
-        .options(selectinload(Group.schedule_slots))
-    )
+    query = select(Group).where(Group.tenant_id == user.tenant_id).options(selectinload(Group.schedule_slots))
+    # A teacher must only ever see and act on their own groups — otherwise anyone
+    # with a teacher account could mark attendance or view rosters for a colleague's class.
+    if user.role.value == "teacher":
+        query = query.where(Group.teacher_id == user.id)
+    result = await db.execute(query)
     groups = result.scalars().all()
     return [await _to_group_out(db, g) for g in groups]
 
@@ -115,6 +116,43 @@ async def enroll_student(
     return {"status": "enrolled"}
 
 
+@router.delete("/{group_id}")
+async def delete_group(
+    group_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role("owner", "admin")),
+):
+    """Deletes a group outright only if it has no lesson history yet (nothing to lose).
+    Once lessons/attendance exist, deleting the row would silently erase that history —
+    instead the group is archived (status=finished) so it drops out of active lists
+    but stays available for reports.
+    """
+    from app.models.lesson import Lesson
+
+    result = await db.execute(select(Group).where(Group.id == group_id, Group.tenant_id == user.tenant_id))
+    group = result.scalar_one_or_none()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    lessons_result = await db.execute(select(func.count(Lesson.id)).where(Lesson.group_id == group_id))
+    has_history = lessons_result.scalar_one() > 0
+
+    if has_history:
+        group.status = "finished"
+        await db.commit()
+        return {"status": "archived", "reason": "Group has lesson history — archived instead of deleted"}
+
+    enrollments_result = await db.execute(select(Enrollment).where(Enrollment.group_id == group_id))
+    for e in enrollments_result.scalars().all():
+        await db.delete(e)
+    slots_result = await db.execute(select(ScheduleSlot).where(ScheduleSlot.group_id == group_id))
+    for s in slots_result.scalars().all():
+        await db.delete(s)
+    await db.delete(group)
+    await db.commit()
+    return {"status": "deleted"}
+
+
 @router.get("/{group_id}/students")
 async def list_group_students(
     group_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
@@ -123,8 +161,11 @@ async def list_group_students(
     from app.models.student import Student
 
     group_result = await db.execute(select(Group).where(Group.id == group_id, Group.tenant_id == user.tenant_id))
-    if not group_result.scalar_one_or_none():
+    group = group_result.scalar_one_or_none()
+    if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+    if user.role.value == "teacher" and group.teacher_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your group")
 
     result = await db.execute(
         select(Student.id, Student.full_name, Student.phone)

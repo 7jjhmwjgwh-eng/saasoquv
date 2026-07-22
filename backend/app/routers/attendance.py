@@ -32,8 +32,11 @@ async def create_lesson(
     group_result = await db.execute(
         select(Group).where(Group.id == payload.group_id, Group.tenant_id == user.tenant_id)
     )
-    if not group_result.scalar_one_or_none():
+    group = group_result.scalar_one_or_none()
+    if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+    if user.role.value == "teacher" and group.teacher_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your group")
 
     lesson = Lesson(
         group_id=payload.group_id, room_id=payload.room_id, date=payload.date, topic=payload.topic
@@ -57,8 +60,11 @@ async def get_or_create_lesson(
     group_result = await db.execute(
         select(Group).where(Group.id == payload.group_id, Group.tenant_id == user.tenant_id)
     )
-    if not group_result.scalar_one_or_none():
+    group = group_result.scalar_one_or_none()
+    if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+    if user.role.value == "teacher" and group.teacher_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your group")
 
     existing = await db.execute(
         select(Lesson)
@@ -89,10 +95,14 @@ async def mark_attendance(
     based on status, logged to student_points_log so the portal rating stays in sync.
     Re-marking the same lesson replaces prior records instead of duplicating them.
     """
-    lesson_result = await db.execute(select(Lesson).where(Lesson.id == payload.lesson_id))
+    lesson_result = await db.execute(
+        select(Lesson).where(Lesson.id == payload.lesson_id).options(selectinload(Lesson.group))
+    )
     lesson = lesson_result.scalar_one_or_none()
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
+    if user.role.value == "teacher" and lesson.group.teacher_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your group")
 
     # Clear any existing attendance + points for this lesson first, so re-submitting
     # (e.g. teacher fixes a mistake) doesn't double-count points or duplicate rows.

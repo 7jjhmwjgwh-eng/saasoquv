@@ -31,9 +31,10 @@ async def list_tenants(
     db: AsyncSession = Depends(get_db), _: None = Depends(_check_token)
 ):
     """All centres in the system — the owner's 'who are my clients' screen."""
-    result = await db.execute(
-        select(Tenant).order_by(Tenant.created_at.desc())
-    )
+    all_result = await db.execute(select(Tenant.id).order_by(Tenant.created_at.asc()))
+    code_by_id = {tid: f"{idx:04d}" for idx, (tid,) in enumerate(all_result.all(), start=1)}
+
+    result = await db.execute(select(Tenant).order_by(Tenant.created_at.desc()))
     tenants = result.scalars().all()
 
     rows = []
@@ -61,6 +62,7 @@ async def list_tenants(
 
         rows.append({
             "id": str(t.id),
+            "code": code_by_id[t.id],
             "name": t.name,
             "subdomain": t.subdomain,
             "plan": t.plan,

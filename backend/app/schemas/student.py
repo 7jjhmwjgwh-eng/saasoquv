@@ -40,6 +40,7 @@ class StudentOut(BaseModel):
     lessons_total: int = 0
     lessons_missed: int = 0
     lessons_late: int = 0
+    student_code: str | None = None
 
     class Config:
         from_attributes = True

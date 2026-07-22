@@ -54,6 +54,11 @@ async def create_staff(
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid role: {payload.role}")
 
+    # An admin could otherwise create a peer admin or even an owner account through
+    # this endpoint — only the owner is allowed to hand out admin/owner privileges.
+    if user.role != UserRole.OWNER and role != UserRole.TEACHER:
+        raise HTTPException(status_code=403, detail="Only the director can create admin accounts")
+
     if payload.email:
         existing = await db.execute(
             select(User).where(User.email == payload.email, User.tenant_id == user.tenant_id)

@@ -25,3 +25,4 @@ class Lesson(Base, UUIDMixin, TimestampMixin):
     attendance_records: Mapped[list["Attendance"]] = relationship(
         back_populates="lesson", cascade="all, delete-orphan"
     )
+    group: Mapped["Group"] = relationship()

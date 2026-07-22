@@ -66,6 +66,16 @@ async def create_payment(
 ):
     payment = Payment(tenant_id=user.tenant_id, **payload.model_dump())
     db.add(payment)
+
+    # A payment is the real-world signal that a lead/trial converted — promote them
+    # automatically instead of leaving admins to remember a manual status change.
+    student_result = await db.execute(
+        select(Student).where(Student.id == payload.student_id, Student.tenant_id == user.tenant_id)
+    )
+    student = student_result.scalar_one_or_none()
+    if student and student.status in (StudentStatus.LEAD, StudentStatus.TRIAL):
+        student.status = StudentStatus.ACTIVE
+
     await db.commit()
     await db.refresh(payment)
     return payment

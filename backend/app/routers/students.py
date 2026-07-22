@@ -28,6 +28,9 @@ async def _to_student_out(db: AsyncSession, student: Student) -> StudentOut:
     )
     out = StudentOut.model_validate(student)
     out.total_points = points_result.scalar_one()
+    if student.birth_date:
+        b = student.birth_date
+        out.student_code = f"{b.year:04d}{b.day:02d}{b.month:02d}"
     await _attach_payment_and_attendance(db, out)
     return out
 
@@ -108,6 +111,48 @@ async def update_student(
     await db.commit()
     await db.refresh(student)
     return await _to_student_out(db, student)
+
+
+@router.delete("/{student_id}")
+async def delete_student(
+    student_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role("owner", "admin")),
+):
+    """Hard-deletes a student only when there is nothing to lose (no payments, no
+    attendance). Once money or attendance history exists, erasing the row would
+    destroy financial/academic records — the student is archived (status=dropped)
+    instead, which is what any real CRM does.
+    """
+    from app.models.attendance import Attendance
+    from app.models.enrollment import Enrollment
+    from app.models.payment import Payment
+
+    result = await db.execute(
+        select(Student).where(Student.id == student_id, Student.tenant_id == user.tenant_id)
+    )
+    student = result.scalar_one_or_none()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    payments_count = (
+        await db.execute(select(func.count(Payment.id)).where(Payment.student_id == student_id))
+    ).scalar_one()
+    attendance_count = (
+        await db.execute(select(func.count(Attendance.id)).where(Attendance.student_id == student_id))
+    ).scalar_one()
+
+    if payments_count > 0 or attendance_count > 0:
+        student.status = "dropped"
+        await db.commit()
+        return {"status": "archived", "reason": "Student has payment/attendance history — archived instead of deleted"}
+
+    enrollments_result = await db.execute(select(Enrollment).where(Enrollment.student_id == student_id))
+    for e in enrollments_result.scalars().all():
+        await db.delete(e)
+    await db.delete(student)
+    await db.commit()
+    return {"status": "deleted"}
 
 
 @router.get("/by-telegram/{telegram_id}", response_model=StudentOut)
