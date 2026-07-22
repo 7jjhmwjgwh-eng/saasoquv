@@ -57,6 +57,7 @@ export interface Student {
   lessons_total: number;
   lessons_missed: number;
   lessons_late: number;
+  student_code: string | null;
 }
 
 export interface Payment {
@@ -182,10 +183,12 @@ export const api = {
   createGroup: (payload: {
     course_id: string;
     level_id?: string;
+    teacher_id?: string;
     name: string;
     max_students: number;
     schedule_slots: { room_id: string; weekday: number; start_time: string; end_time: string }[];
   }) => request<Group>("/api/groups", { method: "POST", body: JSON.stringify(payload) }),
+  deleteGroup: (id: string) => request<{ status: string; reason?: string }>(`/api/groups/${id}`, { method: "DELETE" }),
   enrollStudent: (groupId: string, studentId: string) =>
     request(`/api/groups/${groupId}/enroll?student_id=${studentId}`, { method: "POST" }),
 
@@ -200,6 +203,8 @@ export const api = {
 
   updateStudent: (id: string, payload: Record<string, unknown>) =>
     request<Student>(`/api/students/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteStudent: (id: string) => request<{ status: string; reason?: string }>(`/api/students/${id}`, { method: "DELETE" }),
+  studentPayments: (id: string) => request<Payment[]>(`/api/payments/student/${id}`),
 
   listPayments: () => request<Payment[]>("/api/payments"),
   listDebtors: () => request<Debtor[]>("/api/payments/debtors"),
@@ -255,6 +260,7 @@ export interface StaffMember {
 
 export interface TenantInfo {
   id: string;
+  code: string;
   name: string;
   subdomain: string;
   plan: string;

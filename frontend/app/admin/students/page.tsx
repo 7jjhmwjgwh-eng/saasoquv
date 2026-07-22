@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PanelLayout } from "@/components/PanelLayout";
-import { api, getToken, Student, Group } from "@/lib/api";
+import { api, getToken, Student, Payment } from "@/lib/api";
 
 const NAV = [
   { href: "/admin", label: "Главная", icon: "🏠" },
@@ -20,11 +20,11 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 const STATUS_ORDER = ["lead", "trial", "active", "dropped"];
+const METHOD_LABELS: Record<string, string> = { cash: "Наличные", card: "Карта", click: "Click", payme: "Payme", other: "Другое" };
 
 export default function AdminStudents() {
   const router = useRouter();
   const [students, setStudents] = useState<Student[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -37,10 +37,12 @@ export default function AdminStudents() {
   const [birthDate, setBirthDate] = useState("");
   const [source, setSource] = useState("");
 
+  const [selected, setSelected] = useState<Student | null>(null);
+  const [selectedPayments, setSelectedPayments] = useState<Payment[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
+
   function load() {
-    return Promise.all([api.listStudents(), api.listGroups()]).then(([s, g]) => {
-      setStudents(s); setGroups(g);
-    });
+    return api.listStudents().then(setStudents);
   }
 
   useEffect(() => {
@@ -60,13 +62,33 @@ export default function AdminStudents() {
   async function changeStatus(id: string, status: string) {
     await api.updateStudent(id, { status });
     await load();
+    setSelected(prev => prev && prev.id === id ? { ...prev, status } : prev);
   }
 
   async function handleSetPassword(id: string, name: string) {
     const pw = window.prompt(`Новый пароль для "${name}" (мин. 4 символа):`);
     if (!pw || pw.length < 4) return;
     await api.setStudentPassword(id, pw);
-    alert(`Пароль установлен. Ученик входит на /portal/login по телефону и этому паролю.`);
+    alert("Пароль установлен. Ученик входит на /portal/login по телефону и этому паролю.");
+  }
+
+  async function handleDelete(id: string, name: string) {
+    if (!window.confirm(`Удалить ученика "${name}"?`)) return;
+    const res = await api.deleteStudent(id);
+    if (res.status === "archived") {
+      alert("У ученика есть история оплат/посещаемости — он архивирован (статус «Отчислен»), а не удалён, чтобы не потерять эти данные.");
+    }
+    setSelected(null);
+    await load();
+  }
+
+  async function openDetail(s: Student) {
+    setSelected(s);
+    setDetailLoading(true);
+    try {
+      const payments = await api.studentPayments(s.id);
+      setSelectedPayments(payments);
+    } finally { setDetailLoading(false); }
   }
 
   const filtered = students
@@ -84,7 +106,6 @@ export default function AdminStudents() {
           </button>
         </div>
 
-        {/* Filters */}
         <div className="flex flex-wrap gap-2 mb-4">
           {["all", ...STATUS_ORDER].map(s => (
             <button key={s} onClick={() => setFilter(s)}
@@ -142,57 +163,117 @@ export default function AdminStudents() {
             {filtered.map(s => {
               const st = STATUS_LABELS[s.status] ?? { label: s.status, color: "" };
               return (
-                <div key={s.id} className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-4">
-                  <div className="flex items-start justify-between mb-2">
+                <button key={s.id} onClick={() => openDetail(s)}
+                  className="w-full text-left bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-4 hover:border-[var(--color-accent)] transition-colors">
+                  <div className="flex items-start justify-between mb-1">
                     <div>
-                      <p className="font-medium">{s.full_name}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-medium">{s.full_name}</p>
+                        {s.student_code && <span className="text-xs text-[var(--color-text-muted)] font-mono">#{s.student_code}</span>}
+                      </div>
                       <div className="flex flex-wrap gap-2 mt-1">
-                        {s.phone && <a href={`tel:${s.phone}`} className="text-xs text-[var(--color-accent)]">{s.phone}</a>}
-                        {s.parent_phone && <span className="text-xs text-[var(--color-text-muted)]">родитель: {s.parent_phone}</span>}
-                        {s.birth_date && <span className="text-xs text-[var(--color-text-muted)]">д.р. {s.birth_date}</span>}
+                        {s.phone && <span className="text-xs text-[var(--color-text-muted)]">{s.phone}</span>}
                       </div>
                     </div>
                     <span className={`text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap ${st.color}`}>{st.label}</span>
                   </div>
-
-                  <div className="flex flex-wrap gap-2 items-center mt-2">
-                    {/* Status change */}
-                    <select value={s.status} onChange={e => changeStatus(s.id, e.target.value)}
-                      className="text-xs rounded-lg border border-[var(--color-border)] px-2 py-1 focus:outline-none">
-                      {STATUS_ORDER.map(st => <option key={st} value={st}>{STATUS_LABELS[st].label}</option>)}
-                    </select>
-
-                    {/* Payment status badge */}
+                  <div className="flex flex-wrap gap-2 mt-2">
                     {s.paid_until ? (
                       <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${s.is_payment_overdue ? "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" : "bg-[var(--color-success-bg)] text-[var(--color-success)]"}`}>
-                        {s.is_payment_overdue ? `просрочено` : `оплачено до ${s.paid_until}`}
+                        {s.is_payment_overdue ? "просрочено" : `оплачено до ${s.paid_until}`}
                       </span>
                     ) : (
                       <span className="text-xs px-2.5 py-1 rounded-full bg-[var(--color-bg)] text-[var(--color-text-muted)]">не оплачивал</span>
                     )}
-
-                    {/* Attendance */}
                     {s.lessons_total > 0 && (
                       <span className={`text-xs px-2.5 py-1 rounded-full ${s.lessons_missed >= 3 ? "bg-[var(--color-warning-bg)] text-[var(--color-warning)]" : "bg-[var(--color-bg)] text-[var(--color-text-muted)]"}`}>
                         {s.lessons_missed} пропусков
                       </span>
                     )}
-
-                    <span className="text-xs px-2.5 py-1 rounded-full bg-[var(--color-bg)] text-[var(--color-text-muted)]">
-                      ⭐ {s.total_points}
-                    </span>
-
-                    <button onClick={() => handleSetPassword(s.id, s.full_name)}
-                      className="text-xs text-[var(--color-accent)] hover:underline">
-                      Выдать пароль
-                    </button>
+                    <span className="text-xs px-2.5 py-1 rounded-full bg-[var(--color-bg)] text-[var(--color-text-muted)]">⭐ {s.total_points}</span>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
         )}
       </div>
+
+      {selected && (
+        <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center" onClick={() => setSelected(null)}>
+          <div
+            className="bg-[var(--color-bg)] rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[85vh] overflow-y-auto p-5"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold">{selected.full_name}</h2>
+                {selected.student_code && <p className="text-xs text-[var(--color-text-muted)] font-mono">Код: {selected.student_code}</p>}
+              </div>
+              <button onClick={() => setSelected(null)} className="text-[var(--color-text-muted)] text-xl leading-none">✕</button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-3">
+                <p className="text-xs text-[var(--color-text-muted)]">Телефон</p>
+                <p className="text-sm font-medium">{selected.phone || "—"}</p>
+              </div>
+              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-3">
+                <p className="text-xs text-[var(--color-text-muted)]">Родитель</p>
+                <p className="text-sm font-medium">{selected.parent_phone || "—"}</p>
+              </div>
+              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-3">
+                <p className="text-xs text-[var(--color-text-muted)]">Дата рождения</p>
+                <p className="text-sm font-medium">{selected.birth_date || "—"}</p>
+              </div>
+              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-3">
+                <p className="text-xs text-[var(--color-text-muted)]">Баллы</p>
+                <p className="text-sm font-medium">⭐ {selected.total_points}</p>
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <label className="text-xs font-medium text-[var(--color-text-muted)]">Статус</label>
+              <select value={selected.status} onChange={e => changeStatus(selected.id, e.target.value)}
+                className="w-full mt-1 rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm focus:outline-none">
+                {STATUS_ORDER.map(st => <option key={st} value={st}>{STATUS_LABELS[st].label}</option>)}
+              </select>
+            </div>
+
+            <div className="mt-4">
+              <h3 className="text-sm font-semibold mb-2">История оплат</h3>
+              {detailLoading ? (
+                <p className="text-xs text-[var(--color-text-muted)]">Загрузка...</p>
+              ) : selectedPayments.length === 0 ? (
+                <p className="text-xs text-[var(--color-text-muted)]">Оплат ещё не было</p>
+              ) : (
+                <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-hidden">
+                  {selectedPayments.map(p => (
+                    <div key={p.id} className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)] last:border-0">
+                      <div>
+                        <p className="text-sm">{p.paid_at}</p>
+                        <p className="text-xs text-[var(--color-text-muted)]">{METHOD_LABELS[p.method] ?? p.method}{p.valid_until ? ` · до ${p.valid_until}` : ""}</p>
+                      </div>
+                      <p className="text-sm font-semibold">{Number(p.amount).toLocaleString("ru-RU")}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => handleSetPassword(selected.id, selected.full_name)}
+                className="flex-1 text-sm font-medium px-4 py-2.5 rounded-xl bg-[var(--color-accent)] text-white">
+                Выдать пароль
+              </button>
+              <button onClick={() => handleDelete(selected.id, selected.full_name)}
+                className="text-sm font-medium px-4 py-2.5 rounded-xl bg-[var(--color-danger-bg)] text-[var(--color-danger)]">
+                Удалить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </PanelLayout>
   );
 }

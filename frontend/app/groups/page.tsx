@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
-import { api, getToken, Group, Course, Room, Student, GroupStudent } from "@/lib/api";
+import { api, getToken, Group, Course, Room, Student, GroupStudent, staffApi, StaffMember } from "@/lib/api";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
@@ -22,6 +22,8 @@ export default function GroupsPage() {
   const [maxStudents, setMaxStudents] = useState(12);
   const [roomId, setRoomId] = useState("");
   const [weekdays, setWeekdays] = useState<number[]>([]);
+  const [teacherId, setTeacherId] = useState("");
+  const [teachers, setTeachers] = useState<StaffMember[]>([]);
   const [startTime, setStartTime] = useState("18:00");
   const [endTime, setEndTime] = useState("19:30");
   const [saving, setSaving] = useState(false);
@@ -31,6 +33,15 @@ export default function GroupsPage() {
   const [roster, setRoster] = useState<GroupStudent[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [enrollError, setEnrollError] = useState<string | null>(null);
+
+  async function handleDeleteGroup(id: string, name: string) {
+    if (!window.confirm(`Удалить группу "${name}"?`)) return;
+    const res = await api.deleteGroup(id);
+    if (res.status === "archived") {
+      alert("У группы есть история занятий — она архивирована (скрыта из активных), а не удалена, чтобы не потерять посещаемость.");
+    }
+    await loadAll();
+  }
 
   async function openRoster(groupId: string) {
     if (openGroupId === groupId) {
@@ -61,6 +72,7 @@ export default function GroupsPage() {
   }
 
   function loadAll() {
+    staffApi.list().then(list => setTeachers(list.filter(s => s.role === "teacher"))).catch(() => {});
     return Promise.all([api.listGroups(), api.listCourses(), api.listRooms()]).then(([g, c, r]) => {
       setGroups(g);
       setCourses(c);
@@ -88,6 +100,7 @@ export default function GroupsPage() {
         level_id: levelId || undefined,
         name,
         max_students: maxStudents,
+        teacher_id: teacherId || undefined,
         // One slot per selected weekday — this is how "Пн / Ср / Пт" becomes
         // three recurring lessons on the same room and time.
         schedule_slots: roomId
@@ -104,6 +117,7 @@ export default function GroupsPage() {
       });
       setName("");
       setWeekdays([]);
+      setTeacherId("");
       setShowForm(false);
       await loadAll();
     } catch (err) {
@@ -214,6 +228,21 @@ export default function GroupsPage() {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="block text-xs font-medium mb-1 text-[var(--color-text-muted)]">Преподаватель</label>
+                <select
+                  value={teacherId}
+                  onChange={(e) => setTeacherId(e.target.value)}
+                  className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                >
+                  <option value="">Не назначен</option>
+                  {teachers.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.full_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="col-span-2 sm:col-span-1">
                 <label className="block text-xs font-medium mb-1 text-[var(--color-text-muted)]">Дни занятий</label>
                 <div className="flex flex-wrap gap-1">
@@ -275,7 +304,7 @@ export default function GroupsPage() {
 
         {loading ? (
           <p className="text-sm text-[var(--color-text-muted)]">Загрузка...</p>
-        ) : groups.length === 0 ? (
+        ) : groups.filter(g => g.status !== "finished").length === 0 ? (
           <div className="bg-[var(--color-surface)] border border-dashed border-[var(--color-border)] rounded-xl p-10 text-center">
             <p className="text-sm text-[var(--color-text-muted)]">
               Пока нет групп. Сначала создайте курс (с уровнями) на бэкенде или через API, затем группу здесь.
@@ -283,7 +312,7 @@ export default function GroupsPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {groups.map((g) => (
+            {groups.filter(g => g.status !== "finished").map((g) => (
               <div key={g.id} className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-5">
                 <div className="flex items-start justify-between mb-2">
                   <h3 className="font-semibold">{g.name}</h3>
@@ -300,6 +329,11 @@ export default function GroupsPage() {
                 <p className="text-sm text-[var(--color-text-muted)]">
                   {g.enrolled_count} / {g.max_students} учеников
                 </p>
+                <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                  {teachers.find((t) => t.id === g.teacher_id)?.full_name ?? (
+                    <span className="text-[var(--color-warning)]">преподаватель не назначен</span>
+                  )}
+                </p>
                 {g.schedule_slots.length > 0 && (
                   <p className="text-xs text-[var(--color-text-muted)] mt-1">
                     {g.schedule_slots
@@ -313,12 +347,20 @@ export default function GroupsPage() {
                   </p>
                 )}
 
-                <button
-                  onClick={() => openRoster(g.id)}
-                  className="mt-3 text-xs font-medium text-[var(--color-accent)] hover:underline"
-                >
-                  {openGroupId === g.id ? "Скрыть учеников" : "Ученики группы"}
-                </button>
+                <div className="flex items-center gap-3 mt-3">
+                  <button
+                    onClick={() => openRoster(g.id)}
+                    className="text-xs font-medium text-[var(--color-accent)] hover:underline"
+                  >
+                    {openGroupId === g.id ? "Скрыть учеников" : "Ученики группы"}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteGroup(g.id, g.name)}
+                    className="text-xs font-medium text-[var(--color-danger)] hover:underline"
+                  >
+                    Удалить
+                  </button>
+                </div>
 
                 {openGroupId === g.id && (
                   <div className="mt-3 border-t border-[var(--color-border)] pt-3">

@@ -67,6 +67,14 @@ export default function StudentPortal() {
             <button onClick={handleLogout} className="text-xs opacity-70 hover:opacity-100">Выйти</button>
           </div>
           <h1 className="text-xl font-bold">{profile?.full_name}</h1>
+          {profile?.student_code && (
+            <p className="text-xs opacity-70 font-mono mt-0.5">Код: {profile.student_code}</p>
+          )}
+          {profile?.is_payment_overdue && (
+            <p className="text-xs mt-1.5 bg-white/20 rounded-lg px-2 py-1 inline-block">
+              ⚠️ Оплата просрочена — обратитесь к администратору
+            </p>
+          )}
           {streak > 1 && (
             <div className="mt-2 flex items-center gap-1.5">
               <span className="text-lg">🔥</span>

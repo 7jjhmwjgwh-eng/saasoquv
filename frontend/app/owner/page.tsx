@@ -108,6 +108,7 @@ export default function OwnerPage() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0 mr-4">
                     <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-mono text-[var(--color-text-muted)]">#{t.code}</span>
                       <p className="font-medium">{t.name}</p>
                       <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--color-bg)] text-[var(--color-text-muted)]">{t.subdomain}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.plan === "pro" ? "bg-[var(--color-accent)] text-white" : "bg-[var(--color-bg)] text-[var(--color-text-muted)]"}`}>{t.plan}</span>

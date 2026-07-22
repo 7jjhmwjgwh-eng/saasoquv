@@ -6,6 +6,9 @@ export interface StudentProfile {
   phone: string | null;
   status: string;
   total_points: number;
+  student_code: string | null;
+  paid_until: string | null;
+  is_payment_overdue: boolean;
 }
 
 export interface StudentAttendanceItem {
